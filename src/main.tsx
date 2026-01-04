@@ -1,10 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import App from "./App.tsx";
-import { DbConnection, type ErrorContext } from "./module_bindings";
 import type { Identity } from "spacetimedb";
 import { SpacetimeDBProvider } from "spacetimedb/react";
+import App from "./App.tsx";
+import { DbConnection, type ErrorContext } from "./module_bindings";
 
 const onConnect = (conn: DbConnection, identity: Identity, token: string) => {
   localStorage.setItem("auth_token", token);

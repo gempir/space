@@ -1,14 +1,15 @@
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import "./App.css";
-import { tables, reducers, Message } from "./module_bindings";
+import { Identity, type Infer, Timestamp } from "spacetimedb";
 import {
+  eq,
+  useReducer,
   useSpacetimeDB,
   useTable,
   where,
-  eq,
-  useReducer,
 } from "spacetimedb/react";
-import { Identity, type Infer, Timestamp } from "spacetimedb";
+import { type Message, reducers, tables } from "./module_bindings";
 
 export type PrettyMessage = {
   senderName: string;

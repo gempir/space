@@ -26,7 +26,7 @@ const onConnectError = (_ctx: ErrorContext, err: Error) => {
 };
 
 const connectionBuilder = DbConnection.builder()
-  .withUri("ws://localhost:3000")
+  .withUri(`ws://${import.meta.env.VITE_SPACETIMEDB_HOST}`)
   .withModuleName("space")
   .withToken(localStorage.getItem("auth_token") || undefined)
   .onConnect(onConnect)

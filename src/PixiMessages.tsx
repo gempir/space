@@ -1,5 +1,5 @@
-import { Container, Graphics, Text } from "pixi.js";
 import { Application, extend } from "@pixi/react";
+import { Container, Graphics, Text } from "pixi.js";
 import type { PrettyMessage } from "./App";
 
 // Register PixiJS components
@@ -15,7 +15,7 @@ function MessageRenderer({ messages }: PixiMessagesProps) {
       {messages.map((message, index) => {
         const yPosition = index * 80 + 20;
         const isSystem = message.kind === "system";
-        
+
         const sentDate = message.sent.toDate();
         const now = new Date();
         const isOlderThanDay =
@@ -36,7 +36,10 @@ function MessageRenderer({ messages }: PixiMessagesProps) {
           : "";
 
         return (
-          <pixiContainer key={`${message.senderName}-${message.text}-${message.sent.toString()}`} y={yPosition}>
+          <pixiContainer
+            key={`${message.senderName}-${message.text}-${message.sent.toString()}`}
+            y={yPosition}
+          >
             {/* Sender name and timestamp */}
             <pixiText
               text={`${isSystem ? "System" : message.senderName}  ${dateString}${timeString}`}
@@ -49,7 +52,7 @@ function MessageRenderer({ messages }: PixiMessagesProps) {
                 fill: isSystem ? 0xff6b6b : 0x4dabf7,
               }}
             />
-            
+
             {/* Message text */}
             <pixiText
               text={message.text}
@@ -63,7 +66,7 @@ function MessageRenderer({ messages }: PixiMessagesProps) {
                 wordWrapWidth: 580,
               }}
             />
-            
+
             {/* Separator line */}
             <pixiGraphics
               y={65}

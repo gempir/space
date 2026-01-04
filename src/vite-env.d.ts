@@ -1,5 +1,5 @@
 interface ImportMetaEnv {
-  readonly VITE_SPACETIMEDB_HOST: string;
+  readonly VITE_SPACETIMEDB_URL: string;
 }
 
 interface ImportMeta {

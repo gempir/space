@@ -10,6 +10,7 @@ import {
   where,
 } from "spacetimedb/react";
 import { type Message, reducers, tables } from "./module_bindings";
+import PixiMessages from "./PixiMessages";
 
 export type PrettyMessage = {
   senderName: string;
@@ -138,7 +139,7 @@ function App() {
         )}
       </div>
       <div className="message-panel">
-        <h1>Messages</h1>
+        <h1>Messages (React)</h1>
         {prettyMessages.length < 1 && <p>No messages</p>}
         <div className="messages">
           {prettyMessages.map((message) => {
@@ -188,6 +189,10 @@ function App() {
             );
           })}
         </div>
+      </div>
+      <div className="pixi-message-panel">
+        <h1>Messages (Pixi.js)</h1>
+        <PixiMessages messages={prettyMessages} />
       </div>
       <div className="online" style={{ whiteSpace: "pre-wrap" }}>
         <h1>Online</h1>

@@ -116,6 +116,7 @@ function App() {
           <>
             <p>{name}</p>
             <button
+              type="button"
               onClick={() => {
                 setSettingName(true);
                 setNewName(name);
@@ -140,7 +141,7 @@ function App() {
         <h1>Messages</h1>
         {prettyMessages.length < 1 && <p>No messages</p>}
         <div className="messages">
-          {prettyMessages.map((message, key) => {
+          {prettyMessages.map((message) => {
             const sentDate = message.sent.toDate();
             const now = new Date();
             const isOlderThanDay =
@@ -153,16 +154,16 @@ function App() {
               minute: "2-digit",
             });
             const dateString = isOlderThanDay
-              ? sentDate.toLocaleDateString([], {
+              ? `${sentDate.toLocaleDateString([], {
                   year: "numeric",
                   month: "short",
                   day: "numeric",
-                }) + " "
+                })} `
               : "";
 
             return (
               <div
-                key={key}
+                key={`${message.senderName}-${message.text}-${message.sent.toString()}`}
                 className={
                   message.kind === "system" ? "system-message" : "user-message"
                 }
@@ -191,8 +192,8 @@ function App() {
       <div className="online" style={{ whiteSpace: "pre-wrap" }}>
         <h1>Online</h1>
         <div>
-          {onlineUsers.map((user, key) => (
-            <div key={key}>
+          {onlineUsers.map((user) => (
+            <div key={user.identity.toHexString()}>
               <p>{user.name || user.identity.toHexString().substring(0, 8)}</p>
             </div>
           ))}
@@ -200,8 +201,8 @@ function App() {
         {offlineUsers.length > 0 && (
           <div>
             <h1>Offline</h1>
-            {offlineUsers.map((user, key) => (
-              <div key={key}>
+            {offlineUsers.map((user) => (
+              <div key={user.identity.toHexString()}>
                 <p>
                   {user.name || user.identity.toHexString().substring(0, 8)}
                 </p>

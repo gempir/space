@@ -33,7 +33,12 @@ const connectionBuilder = DbConnection.builder()
   .onDisconnect(onDisconnect)
   .onConnectError(onConnectError);
 
-createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root");
+if (!rootElement) {
+  throw new Error("Root element not found");
+}
+
+createRoot(rootElement).render(
   <StrictMode>
     <SpacetimeDBProvider connectionBuilder={connectionBuilder}>
       <App />

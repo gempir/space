@@ -226,6 +226,15 @@ function App() {
             aria-label="message input"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (newMessage.trim()) {
+                  sendMessage({ text: newMessage });
+                  setNewMessage("");
+                }
+              }
+            }}
           ></textarea>
           <button type="submit">Send</button>
         </form>

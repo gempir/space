@@ -11,7 +11,12 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  sender: __t.identity(),
-  sent: __t.timestamp(),
-  text: __t.string(),
+  identity: __t.identity().primaryKey(),
+  name: __t.option(__t.string()),
+  online: __t.bool(),
+  x: __t.f32(),
+  z: __t.f32(),
+  facingX: __t.f32().name("facing_x"),
+  facingZ: __t.f32().name("facing_z"),
+  updatedAt: __t.timestamp().name("updated_at"),
 });

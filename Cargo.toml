@@ -10,5 +10,5 @@ crate-type = ["cdylib"]
 path = "server/lib.rs"
 
 [dependencies]
-spacetimedb = "1.11.*"
+spacetimedb = "2.2.0"
 log = "0.4"

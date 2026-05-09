@@ -1,32 +1,35 @@
 use spacetimedb::{reducer, table, Identity, ReducerContext, Table, Timestamp};
 
-#[table(name = user, public)]
-pub struct User {
+const SPAWN_X: f32 = 0.0;
+const SPAWN_Z: f32 = 0.0;
+const PLAYER_SPEED_UNITS_PER_SECOND: f32 = 4.5;
+const MAX_MOVE_SECONDS: f32 = 0.12;
+
+#[table(accessor = player, public)]
+pub struct Player {
     #[primary_key]
     identity: Identity,
     name: Option<String>,
     online: bool,
-}
-
-#[table(name = message, public)]
-pub struct Message {
-    sender: Identity,
-    sent: Timestamp,
-    text: String,
+    x: f32,
+    z: f32,
+    facing_x: f32,
+    facing_z: f32,
+    updated_at: Timestamp,
 }
 
 #[reducer]
-/// Clients invoke this reducer to set their user names.
+/// Clients invoke this reducer to set their display names.
 pub fn set_name(ctx: &ReducerContext, name: String) -> Result<(), String> {
     let name = validate_name(name)?;
-    if let Some(user) = ctx.db.user().identity().find(ctx.sender) {
-        ctx.db.user().identity().update(User {
+    if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
+        ctx.db.player().identity().update(Player {
             name: Some(name),
-            ..user
+            ..player
         });
         Ok(())
     } else {
-        Err("Cannot set name for unknown user".to_string())
+        Err("Cannot set name for unknown player".to_string())
     }
 }
 
@@ -40,62 +43,91 @@ fn validate_name(name: String) -> Result<String, String> {
 }
 
 #[reducer]
-/// Clients invoke this reducer to send messages.
-pub fn send_message(ctx: &ReducerContext, text: String) -> Result<(), String> {
-    let text = validate_message(text)?;
-    log::info!("{}", text);
-    ctx.db.message().insert(Message {
-        sender: ctx.sender,
-        text,
-        sent: ctx.timestamp,
+/// Clients send movement intent; the server owns the final position.
+pub fn move_player(ctx: &ReducerContext, direction_x: f32, direction_z: f32) -> Result<(), String> {
+    let Some(player) = ctx.db.player().identity().find(ctx.sender()) else {
+        return Err("Cannot move unknown player".to_string());
+    };
+
+    let length = (direction_x * direction_x + direction_z * direction_z).sqrt();
+    if !length.is_finite() {
+        return Err("Movement direction must be finite".to_string());
+    }
+
+    let (normalized_x, normalized_z) = if length > 0.0 {
+        (direction_x / length, direction_z / length)
+    } else {
+        (0.0, 0.0)
+    };
+
+    let elapsed_seconds = ctx
+        .timestamp
+        .duration_since(player.updated_at)
+        .map(|duration| duration.as_secs_f32())
+        .unwrap_or(0.0)
+        .clamp(0.0, MAX_MOVE_SECONDS);
+
+    let distance = PLAYER_SPEED_UNITS_PER_SECOND * elapsed_seconds;
+    let moving = length > 0.0;
+    let next_facing_x = if moving {
+        normalized_x
+    } else {
+        player.facing_x
+    };
+    let next_facing_z = if moving {
+        normalized_z
+    } else {
+        player.facing_z
+    };
+
+    ctx.db.player().identity().update(Player {
+        x: player.x + normalized_x * distance,
+        z: player.z + normalized_z * distance,
+        facing_x: next_facing_x,
+        facing_z: next_facing_z,
+        updated_at: ctx.timestamp,
+        ..player
     });
+
     Ok(())
 }
 
-/// Takes a message's text and checks if it's acceptable to send.
-fn validate_message(text: String) -> Result<String, String> {
-    if text.is_empty() {
-        Err("Messages must not be empty".to_string())
-    } else {
-        Ok(text)
-    }
-}
-
 #[reducer(client_connected)]
-// Called when a client connects to a SpacetimeDB database
+/// Called when a client connects to a SpacetimeDB database.
 pub fn client_connected(ctx: &ReducerContext) {
-    if let Some(user) = ctx.db.user().identity().find(ctx.sender) {
-        // If this is a returning user, i.e. we already have a `User` with this `Identity`,
-        // set `online: true`, but leave `name` and `identity` unchanged.
-        ctx.db.user().identity().update(User {
+    if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
+        ctx.db.player().identity().update(Player {
             online: true,
-            ..user
+            updated_at: ctx.timestamp,
+            ..player
         });
     } else {
-        // If this is a new user, create a `User` row for the `Identity`,
-        // which is online, but hasn't set a name.
-        ctx.db.user().insert(User {
+        ctx.db.player().insert(Player {
             name: None,
-            identity: ctx.sender,
+            identity: ctx.sender(),
             online: true,
+            x: SPAWN_X,
+            z: SPAWN_Z,
+            facing_x: 0.0,
+            facing_z: 1.0,
+            updated_at: ctx.timestamp,
         });
     }
 }
 
 #[reducer(client_disconnected)]
-// Called when a client disconnects from SpacetimeDB database
+/// Called when a client disconnects from a SpacetimeDB database.
 pub fn identity_disconnected(ctx: &ReducerContext) {
-    if let Some(user) = ctx.db.user().identity().find(ctx.sender) {
-        ctx.db.user().identity().update(User {
+    if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
+        ctx.db.player().identity().update(Player {
             online: false,
-            ..user
+            updated_at: ctx.timestamp,
+            ..player
         });
     } else {
-        // This branch should be unreachable,
-        // as it doesn't make sense for a client to disconnect without connecting first.
         log::warn!(
-            "Disconnect event for unknown user with identity {:?}",
-            ctx.sender
+            "Disconnect event for unknown player with identity {:?}",
+            ctx.sender()
         );
     }
 }

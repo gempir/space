@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust:
+  checks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -21,40 +21,34 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+          targets: wasm32-unknown-unknown
+
+      - name: Setup SpacetimeDB
+        run: |
+          curl -sSf https://install.spacetimedb.com | sh -s -- --root-dir "$RUNNER_TEMP/spacetime" -y
+          echo "$RUNNER_TEMP/spacetime" >> "$GITHUB_PATH"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Check Rust formatting
         run: cargo fmt --check
 
-  biome:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
+      - name: Validate generated bindings
+        run: |
+          bun run generate
+          git diff --exit-code src/module_bindings
 
       - name: Run biome check
         run: bun run lint
 
-  typescript:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install
-
       - name: Run TypeScript check
         run: bun run tsc
+
+      - name: Build client
+        run: bun run build

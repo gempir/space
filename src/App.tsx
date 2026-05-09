@@ -1,251 +1,226 @@
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useReducer, useSpacetimeDB, useTable } from "spacetimedb/react";
 import "./App.css";
-import { Identity, type Infer, Timestamp } from "spacetimedb";
-import {
-  eq,
-  useReducer,
-  useSpacetimeDB,
-  useTable,
-  where,
-} from "spacetimedb/react";
-import { type Message, reducers, tables } from "./module_bindings";
-import PixiMessages from "./PixiMessages";
+import GameCanvas from "./GameCanvas";
+import { reducers, tables } from "./module_bindings";
 
-export type PrettyMessage = {
-  senderName: string;
-  text: string;
-  sent: Timestamp;
-  kind: "system" | "user";
+const MOVE_TICK_MS = 55;
+
+type MoveIntent = {
+  directionX: number;
+  directionZ: number;
+};
+
+const idleIntent: MoveIntent = {
+  directionX: 0,
+  directionZ: 0,
 };
 
 function App() {
-  const [newName, setNewName] = useState("");
-  const [settingName, setSettingName] = useState(false);
-  const [systemMessages, setSystemMessages] = useState(
-    [] as Infer<typeof Message>[],
-  );
-  const [newMessage, setNewMessage] = useState("");
-
   const { identity, isActive: connected } = useSpacetimeDB();
+  const [players, playersReady] = useTable(
+    tables.player.where((player) => player.online.eq(true)),
+  );
+  const movePlayer = useReducer(reducers.movePlayer);
   const setName = useReducer(reducers.setName);
-  const sendMessage = useReducer(reducers.sendMessage);
 
-  // Subscribe to all messages in the chat
-  const [messages] = useTable(tables.message);
+  const pressedKeysRef = useRef(new Set<string>());
+  const latestIntentRef = useRef<MoveIntent>(idleIntent);
+  const [intent, setIntent] = useState<MoveIntent>(idleIntent);
+  const [draftName, setDraftName] = useState("");
 
-  // Subscribe to all online users in the chat
-  // so we can show who's online and demonstrate
-  // the `where` and `eq` query expressions
-  const [onlineUsers] = useTable(tables.user, where(eq("online", true)), {
-    onInsert: (user) => {
-      // All users being inserted here are online
-      const name = user.name || user.identity.toHexString().substring(0, 8);
-      setSystemMessages((prev) => [
-        ...prev,
-        {
-          sender: Identity.zero(),
-          text: `${name} has connected.`,
-          sent: Timestamp.now(),
-        },
-      ]);
-    },
-    onDelete: (user) => {
-      // All users being deleted here are offline
-      const name = user.name || user.identity.toHexString().substring(0, 8);
-      setSystemMessages((prev) => [
-        ...prev,
-        {
-          sender: Identity.zero(),
-          text: `${name} has disconnected.`,
-          sent: Timestamp.now(),
-        },
-      ]);
-    },
-  });
+  const localPlayer = useMemo(() => {
+    if (!identity) {
+      return undefined;
+    }
+    return players.find((player) => player.identity.isEqual(identity));
+  }, [identity, players]);
 
-  const [offlineUsers] = useTable(tables.user, where(eq("online", false)));
-  const users = [...onlineUsers, ...offlineUsers];
+  useEffect(() => {
+    if (localPlayer?.name) {
+      setDraftName(localPlayer.name);
+    }
+  }, [localPlayer?.name]);
 
-  const prettyMessages: PrettyMessage[] = messages
-    .concat(systemMessages)
-    .sort((a, b) => (a.sent.toDate() > b.sent.toDate() ? 1 : -1))
-    .map((message) => {
-      const user = users.find(
-        (u) => u.identity.toHexString() === message.sender.toHexString(),
-      );
-      return {
-        senderName: user?.name || message.sender.toHexString().substring(0, 8),
-        text: message.text,
-        sent: message.sent,
-        kind: Identity.zero().isEqual(message.sender) ? "system" : "user",
-      };
+  useEffect(() => {
+    const updateIntent = () => {
+      const pressedKeys = pressedKeysRef.current;
+      let directionX = 0;
+      let directionZ = 0;
+
+      if (pressedKeys.has("KeyA")) {
+        directionX -= 1;
+      }
+      if (pressedKeys.has("KeyD")) {
+        directionX += 1;
+      }
+      if (pressedKeys.has("KeyW")) {
+        directionZ += 1;
+      }
+      if (pressedKeys.has("KeyS")) {
+        directionZ -= 1;
+      }
+
+      const length = Math.hypot(directionX, directionZ);
+      const nextIntent =
+        length > 0
+          ? {
+              directionX: directionX / length,
+              directionZ: directionZ / length,
+            }
+          : idleIntent;
+
+      latestIntentRef.current = nextIntent;
+      setIntent(nextIntent);
+      return nextIntent;
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const movementKey = getMovementKey(event);
+      if (!movementKey || event.repeat) {
+        return;
+      }
+      pressedKeysRef.current.add(movementKey);
+      const nextIntent = updateIntent();
+      if (!connected || !playersReady) {
+        return;
+      }
+
+      void movePlayer({
+        directionX: nextIntent.directionX,
+        directionZ: nextIntent.directionZ,
+      }).catch((error: unknown) => {
+        console.error("Failed to move player", error);
+      });
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      const movementKey = getMovementKey(event);
+      if (!movementKey) {
+        return;
+      }
+      pressedKeysRef.current.delete(movementKey);
+      updateIntent();
+    };
+
+    const onWindowBlur = () => {
+      pressedKeysRef.current.clear();
+      updateIntent();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onWindowBlur);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [connected, movePlayer, playersReady]);
+
+  useEffect(() => {
+    if (!connected || !playersReady) {
+      return;
+    }
+
+    const sendMoveIntent = () => {
+      const currentIntent = latestIntentRef.current;
+      if (currentIntent.directionX === 0 && currentIntent.directionZ === 0) {
+        return;
+      }
+
+      void movePlayer({
+        directionX: currentIntent.directionX,
+        directionZ: currentIntent.directionZ,
+      }).catch((error: unknown) => {
+        console.error("Failed to move player", error);
+      });
+    };
+
+    sendMoveIntent();
+    const interval = window.setInterval(sendMoveIntent, MOVE_TICK_MS);
+    return () => window.clearInterval(interval);
+  }, [connected, movePlayer, playersReady]);
+
+  useEffect(() => {
+    if (!connected || !playersReady) {
+      return;
+    }
+    if (intent.directionX === 0 && intent.directionZ === 0) {
+      return;
+    }
+
+    void movePlayer({
+      directionX: intent.directionX,
+      directionZ: intent.directionZ,
+    }).catch((error: unknown) => {
+      console.error("Failed to move player", error);
     });
+  }, [connected, intent, movePlayer, playersReady]);
 
-  console.log("connected:", connected, "identity:", identity?.toHexString());
+  const playerName =
+    localPlayer?.name ?? identity?.toHexString().slice(0, 8) ?? "joining";
 
-  if (!connected || !identity) {
-    return (
-      <div className="App">
-        <h1>Connecting...</h1>
-      </div>
-    );
-  }
-
-  const name = (() => {
-    const user = users.find((u) => u.identity.isEqual(identity));
-    return user?.name || identity?.toHexString().substring(0, 8) || "";
-  })();
-
-  const onSubmitNewName = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setSettingName(false);
-    setName({ name: newName });
-  };
-
-  const onSubmitMessage = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setNewMessage("");
-    sendMessage({ text: newMessage });
+  const onSubmitName = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = draftName.trim();
+    if (name.length === 0) {
+      return;
+    }
+    void setName({ name }).catch((error: unknown) => {
+      console.error("Failed to set name", error);
+    });
   };
 
   return (
-    <div className="App">
-      <div className="profile">
-        <h1>Profile</h1>
-        {!settingName ? (
-          <>
-            <p>{name}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setSettingName(true);
-                setNewName(name);
-              }}
-            >
-              Edit Name
-            </button>
-          </>
-        ) : (
-          <form onSubmit={onSubmitNewName}>
-            <input
-              type="text"
-              aria-label="username input"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <button type="submit">Submit</button>
-          </form>
-        )}
-      </div>
-      <div className="message-panel">
-        <h1>Messages (React)</h1>
-        {prettyMessages.length < 1 && <p>No messages</p>}
-        <div className="messages">
-          {prettyMessages.map((message) => {
-            const sentDate = message.sent.toDate();
-            const now = new Date();
-            const isOlderThanDay =
-              now.getFullYear() !== sentDate.getFullYear() ||
-              now.getMonth() !== sentDate.getMonth() ||
-              now.getDate() !== sentDate.getDate();
-
-            const timeString = sentDate.toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const dateString = isOlderThanDay
-              ? `${sentDate.toLocaleDateString([], {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })} `
-              : "";
-
-            return (
-              <div
-                key={`${message.senderName}-${message.text}-${message.sent.toString()}`}
-                className={
-                  message.kind === "system" ? "system-message" : "user-message"
-                }
-              >
-                <p>
-                  <b>
-                    {message.kind === "system" ? "System" : message.senderName}
-                  </b>
-                  <span
-                    style={{
-                      fontSize: "0.8rem",
-                      marginLeft: "0.5rem",
-                      color: "#666",
-                    }}
-                  >
-                    {dateString}
-                    {timeString}
-                  </span>
-                </p>
-                <p>{message.text}</p>
-              </div>
-            );
-          })}
+    <main className="game-app">
+      <GameCanvas identity={identity} inputIntent={intent} players={players} />
+      <section className="hud" aria-label="Player status">
+        <div className="hud__status">
+          <span className={connected ? "status-dot online" : "status-dot"} />
+          <span>{connected && playersReady ? playerName : "connecting"}</span>
         </div>
-      </div>
-      <div className="pixi-message-panel">
-        <h1>Messages (Pixi.js)</h1>
-        <PixiMessages messages={prettyMessages} />
-      </div>
-      <div className="online" style={{ whiteSpace: "pre-wrap" }}>
-        <h1>Online</h1>
-        <div>
-          {onlineUsers.map((user) => (
-            <div key={user.identity.toHexString()}>
-              <p>{user.name || user.identity.toHexString().substring(0, 8)}</p>
-            </div>
-          ))}
-        </div>
-        {offlineUsers.length > 0 && (
-          <div>
-            <h1>Offline</h1>
-            {offlineUsers.map((user) => (
-              <div key={user.identity.toHexString()}>
-                <p>
-                  {user.name || user.identity.toHexString().substring(0, 8)}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="new-message">
-        <form
-          onSubmit={onSubmitMessage}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            width: "50%",
-            margin: "0 auto",
-          }}
-        >
-          <h3>New Message</h3>
-          <textarea
-            aria-label="message input"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (newMessage.trim()) {
-                  sendMessage({ text: newMessage });
-                  setNewMessage("");
-                }
-              }
-            }}
-          ></textarea>
-          <button type="submit">Send</button>
+        <div className="hud__count">{players.length} online</div>
+        <form className="hud__name-form" onSubmit={onSubmitName}>
+          <input
+            aria-label="Display name"
+            maxLength={24}
+            onChange={(event) => setDraftName(event.target.value)}
+            placeholder="Display name"
+            type="text"
+            value={draftName}
+          />
+          <button type="submit">Set</button>
         </form>
-      </div>
-    </div>
+      </section>
+    </main>
   );
+}
+
+function getMovementKey(event: KeyboardEvent) {
+  if (
+    event.code === "KeyW" ||
+    event.code === "KeyA" ||
+    event.code === "KeyS" ||
+    event.code === "KeyD"
+  ) {
+    return event.code;
+  }
+
+  switch (event.key.toLowerCase()) {
+    case "w":
+      return "KeyW";
+    case "a":
+      return "KeyA";
+    case "s":
+      return "KeyS";
+    case "d":
+      return "KeyD";
+    default:
+      return undefined;
+  }
 }
 
 export default App;

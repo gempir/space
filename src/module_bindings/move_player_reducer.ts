@@ -11,5 +11,6 @@ import {
 } from "spacetimedb";
 
 export default {
-  text: __t.string(),
+  directionX: __t.f32(),
+  directionZ: __t.f32(),
 };

@@ -27,6 +27,7 @@ jobs:
         run: |
           curl -sSf https://install.spacetimedb.com | sh -s -- --root-dir "$RUNNER_TEMP/spacetime" -y
           echo "$RUNNER_TEMP/spacetime" >> "$GITHUB_PATH"
+          echo "SPACETIME_ROOT=$RUNNER_TEMP/spacetime" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
